@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from VGG import vgg16
+from MobilenetV2 import MobileNetV2
 from dataloader import get_cifar10
 from utils import *
 
@@ -11,7 +11,7 @@ if __name__ == "__main__":
 
     train_loader,test_loader = get_cifar10(batchsize=128)
 
-    model = vgg16(num_classes=10, dropout=0.5)
+    model = MobileNetV2(num_classes=10, dropout=0.5)
     model.to(device)
 
     epochs = 300
@@ -43,4 +43,4 @@ if __name__ == "__main__":
         print(f"Epoch {epoch+1:2d}: Loss={train_loss:.4f} | Train Acc={train_acc:.2f}% | Test Acc={test_acc:.2f}%")
         scheduler.step()
     
-    torch.save(model.state_dict(),'./checkpoints/test2_vgg16_cifar10.pth')
+    torch.save(model.state_dict(),'./checkpoints/test2_mobilenetv2_cifar10.pth')
