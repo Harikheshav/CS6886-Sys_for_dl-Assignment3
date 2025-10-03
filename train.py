@@ -7,6 +7,12 @@ from utils import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+def log_print(log_file, msg):
+    """Prints to console and writes to log file."""
+    print(msg)
+    with open(log_file, 'a') as f:
+        f.write(msg + '\n')
+
 if __name__ == "__main__":
 
     train_loader,test_loader = get_cifar10(batchsize=128)
@@ -40,7 +46,7 @@ if __name__ == "__main__":
         test_acc = evaluate(model, test_loader, device)
 
 
-        print(f"Epoch {epoch+1:2d}: Loss={train_loss:.4f} | Train Acc={train_acc:.2f}% | Test Acc={test_acc:.2f}%")
+        log_print("training_log.txt",f"Epoch {epoch+1:2d}: Loss={train_loss:.4f} | Train Acc={train_acc:.2f}% | Test Acc={test_acc:.2f}%")
         scheduler.step()
     
     torch.save(model.state_dict(),'./checkpoints/test2_mobilenetv2_cifar10.pth')
