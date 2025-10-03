@@ -182,10 +182,10 @@ class CIFAR10Policy(object):
 def get_cifar10(batchsize=128):
     trans_t = transforms.Compose([transforms.RandomCrop(32, padding=4),
                                   transforms.RandomHorizontalFlip(),
-                                  CIFAR10Policy(),
+                                  #CIFAR10Policy(),
                                   transforms.ToTensor(),
                                   transforms.Normalize(mean=[n/255. for n in [129.3, 124.1, 112.4]], std=[n/255. for n in [68.2,  65.4,  70.4]]),
-                                  Cutout(n_holes=1,length=16)
+                                  #Cutout(n_holes=1,length=16)
                                   ])
     
     trans = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[n/255. for n in [129.3, 124.1, 112.4]], std=[n/255. for n in [68.2,  65.4,  70.4]])])
