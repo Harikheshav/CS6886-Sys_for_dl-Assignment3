@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from VGG import vgg16
+from MobilenetV2 import MobileNetV2
 from dataloader import get_cifar10
 from utils import *
 from quantize import *
@@ -15,8 +15,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     train_loader,test_loader = get_cifar10(batchsize=2)
-    model = vgg16(num_classes=10, dropout=0.5)
-    model.load_state_dict(torch.load('./checkpoints/test2_vgg16_cifar10.pth',weights_only=True,map_location = device))
+    model = MobileNetV2(num_classes=10, dropout=0.5)
+    model.load_state_dict(torch.load('./checkpoints/test2_mobilenetv2_cifar10.pth',weights_only=True,map_location = device))
     model.to(device)
     model.eval()
     test_acc = evaluate(model, test_loader, device)
