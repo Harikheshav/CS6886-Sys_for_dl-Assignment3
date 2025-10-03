@@ -7,6 +7,7 @@ from PIL import Image,ImageEnhance,ImageOps
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import torchvision
+
 class Cutout(object):
     """Randomly mask out one or more patches from an image.
     Args:
@@ -29,6 +30,7 @@ class Cutout(object):
 
         mask = np.ones((h, w), np.float32)
 
+        # Randomly select n_holes locations and mask them
         for n in range(self.n_holes):
             y = np.random.randint(h)
             x = np.random.randint(w)
@@ -46,6 +48,9 @@ class Cutout(object):
         return img
 
 class SubPolicy(object):
+    """
+    Defines a sub-policy for data augmentation, applying two operations with given probabilities and magnitudes.
+    """
     def __init__(self, p1, operation1, magnitude_idx1, p2, operation2, magnitude_idx2, fillcolor=(128, 128, 128)):
         self.p1 = p1
         self.op1=operation1
@@ -57,6 +62,7 @@ class SubPolicy(object):
         self.init = 0
 
     def gen(self, operation1, magnitude_idx1, operation2, magnitude_idx2, fillcolor):
+        # Define ranges for each augmentation operation
         ranges = {
             "shearX": np.linspace(0, 0.3, 10),
             "shearY": np.linspace(0, 0.3, 10),
@@ -73,10 +79,12 @@ class SubPolicy(object):
             "equalize": [0] * 10,
             "invert": [0] * 10
         }
+        # Helper for rotate with fill color
         def rotate_with_fill(img, magnitude):
             rot = img.convert("RGBA").rotate(magnitude)
             return Image.composite(rot, Image.new("RGBA", rot.size, (128,) * 4), rot).convert(img.mode)
 
+        # Map operation names to functions
         func = {
             "shearX": lambda img, magnitude: img.transform(
                 img.size, Image.AFFINE, (1, magnitude *
@@ -95,7 +103,6 @@ class SubPolicy(object):
                                          img.size[1] * random.choice([-1, 1])),
                 fillcolor=fillcolor),
             "rotate": lambda img, magnitude: rotate_with_fill(img, magnitude),
-            # "rotate": lambda img, magnitude: img.rotate(magnitude * random.choice([-1, 1])),
             "color": lambda img, magnitude: ImageEnhance.Color(img).enhance(1 + magnitude * random.choice([-1, 1])),
             "posterize": lambda img, magnitude: ImageOps.posterize(img, magnitude),
             "solarize": lambda img, magnitude: ImageOps.solarize(img, magnitude),
@@ -116,11 +123,14 @@ class SubPolicy(object):
         self.magnitude2 = ranges[operation2][magnitude_idx2]
 
     def __call__(self, img):
+        # Initialize operations and magnitudes on first call
         if self.init == 0:
             self.gen(self.op1, self.magnitude_idx1, self.op2, self.magnitude_idx2, self.fillcolor)
             self.init = 1
+        # Apply first operation with probability p1
         if random.random() < self.p1:
             img = self.operation1(img, self.magnitude1)
+        # Apply second operation with probability p2
         if random.random() < self.p2:
             img = self.operation2(img, self.magnitude2)
         return img
@@ -140,6 +150,7 @@ class CIFAR10Policy(object):
     """
 
     def __init__(self, fillcolor=(128, 128, 128)):
+        # List of 25 best sub-policies for CIFAR10
         self.policies = [
             SubPolicy(0.1, "invert", 7, 0.2, "contrast", 6, fillcolor),
             SubPolicy(0.7, "rotate", 2, 0.3, "translateX", 9, fillcolor),
@@ -173,6 +184,7 @@ class CIFAR10Policy(object):
         ]
 
     def __call__(self, img):
+        # Randomly select and apply one sub-policy
         policy_idx = random.randint(0, len(self.policies) - 1)
         return self.policies[policy_idx](img)
 
@@ -180,15 +192,21 @@ class CIFAR10Policy(object):
         return "AutoAugment CIFAR10 Policy"
     
 def get_cifar10(batchsize=128):
+    """
+    Returns CIFAR-10 train and test dataloaders with standard augmentations and normalization.
+    """
+    # Training transform: random crop, flip, normalization
     trans_t = transforms.Compose([transforms.RandomCrop(32, padding=4),
                                   transforms.RandomHorizontalFlip(),
                                   transforms.ToTensor(),
                                   transforms.Normalize(mean=[n/255. for n in [129.3, 124.1, 112.4]], std=[n/255. for n in [68.2,  65.4,  70.4]]),
                                   ])
-    
+    # Test transform: normalization only
     trans = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[n/255. for n in [129.3, 124.1, 112.4]], std=[n/255. for n in [68.2,  65.4,  70.4]])])
+    # Load CIFAR-10 datasets
     train_data = torchvision.datasets.CIFAR10('./data', train=True, transform=trans_t, download=True)
     test_data = torchvision.datasets.CIFAR10('./data', train=False, transform=trans, download=True) 
+    # Create dataloaders
     train_dataloader = DataLoader(train_data, batch_size=batchsize, shuffle=True, num_workers=24, pin_memory=True)
     test_dataloader = DataLoader(test_data, batch_size=batchsize, shuffle=False, num_workers=24, pin_memory=True)
     return train_dataloader, test_dataloader

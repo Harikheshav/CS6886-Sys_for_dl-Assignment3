@@ -12,17 +12,21 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
+# Select device (GPU if available, else CPU)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def count_parameters(model):
+    """Count total trainable parameters in the model."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def approximate_compression_ratio(num_params, orig_bits, quant_bits):
+    """Estimate compression ratio between FP32 and quantized model."""
     orig_size_bits = num_params * orig_bits
     quant_size_bits = num_params * quant_bits
     return orig_size_bits / quant_size_bits if quant_size_bits > 0 else float('inf')
 
 def calibrate_model(model, loader, device, num_batches=5):
+    """Run a few batches through the model to calibrate activation quantization."""
     model.eval()
     with torch.no_grad():
         for i, (x, _) in enumerate(loader):
@@ -32,6 +36,7 @@ def calibrate_model(model, loader, device, num_batches=5):
                 break
 
 if __name__ == '__main__':
+    # Argument parser for quantization sweep
     parser = argparse.ArgumentParser(description='Quantization sweep')
     parser.add_argument('--weight_bits', type=str, default=None,
                         help='Comma-separated list of weight bits to try, e.g. "8,6,4".')
@@ -43,13 +48,14 @@ if __name__ == '__main__':
                         help='Path to FP32 model weights.')
     args = parser.parse_args()
 
+    # Parse bit settings from arguments or use defaults
     weight_bits_list = [int(x) for x in args.weight_bits.split(',')] if args.weight_bits else [8, 6, 4, 2]
     act_bits_list = [int(x) for x in args.act_bits.split(',')] if args.act_bits else [8, 6, 4]
 
-
+    # Get CIFAR-10 dataloaders
     train_loader, test_loader = get_cifar10(batchsize=args.batchsize)
 
-    # FP32 baseline
+    # FP32 baseline model and accuracy
     base_model = MobileNetV2(num_classes=10, dropout=0.5)
     try:
         base_model.load_state_dict(torch.load(args.weights_path, weights_only=True, map_location=device))
@@ -62,6 +68,7 @@ if __name__ == '__main__':
 
     results = []
 
+    # Sweep over all combinations of weight and activation bits
     for wbits in weight_bits_list:
         for abits in act_bits_list:
             print(f"\n--- Quantization: weight_bits={wbits}, act_bits={abits} ---")
@@ -72,15 +79,21 @@ if __name__ == '__main__':
                 model.load_state_dict(torch.load(args.weights_path, map_location=device))
             model.to(device).eval()
 
+            # Swap modules to quantized versions
             swap_to_quant_modules(model, weight_bits=wbits, act_bits=abits, activations_unsigned=True)
+            # Calibrate activation quantization
             calibrate_model(model, train_loader, device, num_batches=args.calib_batches)
+            # Freeze quantization parameters
             freeze_all_quant(model)
 
+            # Evaluate quantized model accuracy
             with torch.no_grad():
                 test_acc = evaluate(model, test_loader, device)
 
+            # Estimate compression ratio
             comp_ratio = approximate_compression_ratio(total_params, 32, wbits)
 
+            # Print compression summary
             try:
                 print_compression(model, weight_bits=wbits)
             except Exception as e:
@@ -89,10 +102,11 @@ if __name__ == '__main__':
             print(f"Quantized Test Acc (w{wbits}/a{abits}) = {test_acc:.2f}%, compression_ratio_vs_fp32 ≈ {comp_ratio:.2f}x")
             results.append({'wbits': wbits, 'abits': abits, 'test_acc': test_acc, 'comp_ratio': comp_ratio})
 
+            # Clean up to free GPU memory
             del model
             torch.cuda.empty_cache()
 
-# Convert results to DataFrame
+# Convert results to DataFrame for plotting
 df = pd.DataFrame([
     {
         'ActBits': r['abits'],
@@ -109,7 +123,7 @@ cols = ['ActBits','WeightBits','CompressionRatio','ModelSizeMB','QuantAcc']
 scaler = MinMaxScaler()
 df_scaled = pd.DataFrame(scaler.fit_transform(df[cols]), columns=cols)
 
-# Plot
+# Plot parallel coordinates for quantization metrics
 fig, ax = plt.subplots(figsize=(12,6))
 cmap = plt.cm.viridis
 norm = plt.Normalize(df['QuantAcc'].min(), df['QuantAcc'].max())

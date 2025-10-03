@@ -1,4 +1,6 @@
 import torch.nn as nn
+
+# Configuration for MobileNetV2 blocks: [expand_ratio, output_channels, num_blocks, stride]
 cfg = [
     # t, c, n, s
     [1, 16, 1, 1],
@@ -10,7 +12,7 @@ cfg = [
     [6, 320, 1, 1],
 ]
 
-
+# Standard Conv-BN-ReLU6 block
 class ConvBNReLU(nn.Sequential):
     def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, groups=1):
         padding = (kernel_size - 1) // 2
@@ -20,6 +22,7 @@ class ConvBNReLU(nn.Sequential):
             nn.ReLU6(inplace=True)
         )
 
+# Inverted Residual block with BatchNorm
 class InvertedResidual(nn.Module):
     def __init__(self, inp, oup, stride, expand_ratio):
         super().__init__()
@@ -27,21 +30,25 @@ class InvertedResidual(nn.Module):
         self.use_res_connect = (stride == 1 and inp == oup)
 
         layers = []
+        # Expand if expand_ratio != 1
         if expand_ratio != 1:
             layers.append(ConvBNReLU(inp, hidden_dim, kernel_size=1))
+        # Depthwise convolution
         layers.extend([
             ConvBNReLU(hidden_dim, hidden_dim, stride=stride, groups=hidden_dim),
-            nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),
+            nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),  # Pointwise convolution
             nn.BatchNorm2d(oup)
         ])
         self.conv = nn.Sequential(*layers)
 
     def forward(self, x):
+        # Residual connection if possible
         if self.use_res_connect:
             return x + self.conv(x)
         else:
             return self.conv(x)
 
+# Conv-ReLU block (no BatchNorm)
 class ConvReLU(nn.Sequential):
     def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, groups=1):
         padding = (kernel_size - 1) // 2
@@ -51,7 +58,7 @@ class ConvReLU(nn.Sequential):
             nn.ReLU6(inplace=True)
         )
 
-# InvertedResidual block without BatchNorm
+# Inverted Residual block without BatchNorm
 class InvertedResidual_woBN(nn.Module):
     def __init__(self, inp, oup, stride, expand_ratio):
         super().__init__()
@@ -59,25 +66,30 @@ class InvertedResidual_woBN(nn.Module):
         self.use_res_connect = (stride == 1 and inp == oup)
 
         layers = []
+        # Expand if expand_ratio != 1
         if expand_ratio != 1:
             layers.append(ConvReLU(inp, hidden_dim, kernel_size=1))
+        # Depthwise convolution
         layers.extend([
             ConvReLU(hidden_dim, hidden_dim, stride=stride, groups=hidden_dim),
-            nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=True)
+            nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=True)  # Pointwise convolution
         ])
         self.conv = nn.Sequential(*layers)
 
     def forward(self, x):
+        # Residual connection if possible
         if self.use_res_connect:
             return x + self.conv(x)
         else:
             return self.conv(x)
 
+# MobileNetV2 model without BatchNorm layers
 class MobileNetV2_woBN(nn.Module):
     def __init__(self, num_classes, dropout):
         super(MobileNetV2, self).__init__()
-        self.init_channels = 3
+        self.init_channels = 3  # Input channels (RGB)
         self.loss = 0
+        # Build layers according to cfg
         self.layer1 = self._make_layers(cfg[0])
         self.layer2 = self._make_layers(cfg[1])
         self.layer3 = self._make_layers(cfg[2])
@@ -86,12 +98,13 @@ class MobileNetV2_woBN(nn.Module):
         self.layer6 = self._make_layers(cfg[5])
         self.layer7 = self._make_layers(cfg[6])
         self.final_conv = ConvReLU(self.init_channels, 1280, kernel_size=1)
-        # Classifier
+        # Classifier head
         self.classifier = nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(1280, num_classes)
         )
         
+        # Weight initialization
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -101,6 +114,7 @@ class MobileNetV2_woBN(nn.Module):
             elif isinstance(m, nn.Linear):
                 nn.init.zeros_(m.bias)
 
+    # Helper to build layers from cfg
     def _make_layers(self, cfg):
         layers = []
         t, c, n, s = cfg
@@ -111,6 +125,7 @@ class MobileNetV2_woBN(nn.Module):
         return nn.Sequential(*layers)    
 
     def forward(self, x):
+        # Forward pass through all layers
         out = self.layer1(x)
         out = self.layer2(out)
         out = self.layer3(out)
@@ -124,11 +139,13 @@ class MobileNetV2_woBN(nn.Module):
         out = self.classifier(out)
         return out
 
+# Standard MobileNetV2 model with BatchNorm layers
 class MobileNetV2(nn.Module):
     def __init__(self, num_classes, dropout):
         super(MobileNetV2, self).__init__()
-        self.init_channels = 3
+        self.init_channels = 3  # Input channels (RGB)
         self.loss = 0
+        # Build layers according to cfg
         self.layer1 = self._make_layers(cfg[0])
         self.layer2 = self._make_layers(cfg[1])
         self.layer3 = self._make_layers(cfg[2])
@@ -137,12 +154,13 @@ class MobileNetV2(nn.Module):
         self.layer6 = self._make_layers(cfg[5])
         self.layer7 = self._make_layers(cfg[6])
         self.final_conv = ConvBNReLU(self.init_channels, 1280, kernel_size=1)
-        # Classifier
+        # Classifier head
         self.classifier = nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(1280, num_classes)
         )
         
+        # Weight initialization
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -152,6 +170,7 @@ class MobileNetV2(nn.Module):
             elif isinstance(m, nn.Linear):
                 nn.init.zeros_(m.bias)
 
+    # Helper to build layers from cfg
     def _make_layers(self, cfg):
         layers = []
         t, c, n, s = cfg
@@ -162,6 +181,7 @@ class MobileNetV2(nn.Module):
         return nn.Sequential(*layers)    
 
     def forward(self, x):
+        # Forward pass through all layers
         out = self.layer1(x)
         out = self.layer2(out)
         out = self.layer3(out)

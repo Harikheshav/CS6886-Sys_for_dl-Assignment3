@@ -3,6 +3,15 @@ import torch.nn as nn
 import re 
 
 def evaluate(model, testloader, device):
+    """
+    Evaluate model accuracy on the testloader.
+    Args:
+        model: PyTorch model to evaluate.
+        testloader: DataLoader for test data.
+        device: Device to run evaluation on.
+    Returns:
+        final_acc: Accuracy (%) on the test set.
+    """
     correct = 0
     total = 0
     model.eval()
@@ -17,11 +26,19 @@ def evaluate(model, testloader, device):
     return final_acc
 
 def parse_training_log(log_file):
+    """
+    Parse training log file for epochs, losses, train/test accuracies.
+    Args:
+        log_file: Path to log file.
+    Returns:
+        Dictionary with lists for epochs, train_losses, train_accs, test_accs.
+    """
     epochs = []
     train_losses = []
     train_accs = []
     test_accs = []
 
+    # Regex pattern to extract epoch, loss, train acc, test acc
     pattern = r"Epoch\s+(\d+): Loss=([\d\.]+) \| Train Acc=([\d\.]+)% \| Test Acc=([\d\.]+)%"
 
     with open(log_file, "r") as f:

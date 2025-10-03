@@ -7,13 +7,13 @@ from collections import OrderedDict
 # ---------- core helpers (uniform quant) ----------
 def qparams_from_minmax(xmin, xmax, n_bits=8, unsigned=False, eps=1e-12):
     """
-    Returns (scale, zero_point, qmin, qmax) for uniform quant.
-    - unsigned=True  -> [0, 2^b - 1]
-    - unsigned=False -> symmetric int range [-2^(b-1)+1, 2^(b-1)-1]
+    Returns (scale, zero_point, qmin, qmax) for uniform quantization.
+    - unsigned=True  -> [0, 2^b - 1] (for ReLU outputs)
+    - unsigned=False -> symmetric int range [-2^(b-1)+1, 2^(b-1)-1] (for weights)
     """
     if unsigned:
         qmin, qmax = 0, (1 << n_bits) - 1
-        # (common for post-ReLU) ensure non-negative min for tighter range
+        # For unsigned, clamp min to zero for tighter range
         xmin = torch.zeros_like(xmin)
         scale = (xmax - xmin).clamp_min(eps) / float(qmax - qmin)
         zp = torch.round(-xmin / scale).clamp(qmin, qmax)
@@ -26,17 +26,23 @@ def qparams_from_minmax(xmin, xmax, n_bits=8, unsigned=False, eps=1e-12):
     return scale, zp, int(qmin), int(qmax)
 
 def quantize(x, scale, zp, qmin, qmax):
+    """
+    Quantizes tensor x using scale and zero point, clamps to [qmin, qmax].
+    """
     q = torch.round(x / scale + zp)
     return q.clamp(qmin, qmax)
 
 def dequantize(q, scale, zp):
+    """
+    Dequantizes tensor q using scale and zero point.
+    """
     return (q - zp) * scale
 
 # ---------- activation fake-quant (with calibration then freeze) ----------
 class ActFakeQuant(nn.Module):
     """
-    Per-tensor activation fake-quant with configurable bits.
-    Intended to be placed AFTER ReLU -> use unsigned=True.
+    Per-tensor activation fake-quantization with configurable bits.
+    Used after ReLU (unsigned quantization).
     """
     def __init__(self, n_bits=8, unsigned=True):
         super().__init__()
@@ -51,11 +57,17 @@ class ActFakeQuant(nn.Module):
 
     @torch.no_grad()
     def observe(self, x):
+        """
+        Update min/max values for calibration.
+        """
         self.min_val = torch.minimum(self.min_val, x.min())
         self.max_val = torch.maximum(self.max_val, x.max())
 
     @torch.no_grad()
     def freeze(self):
+        """
+        Freeze quantization parameters after calibration.
+        """
         scale, zp, qmin, qmax = qparams_from_minmax(
             self.min_val, self.max_val, n_bits=self.n_bits, unsigned=self.unsigned
         )
@@ -65,6 +77,10 @@ class ActFakeQuant(nn.Module):
         self.frozen = True
 
     def forward(self, x):
+        """
+        During calibration: just observe.
+        After freeze: quantize and dequantize activations.
+        """
         if not self.frozen:
             self.observe(x)
             return x
@@ -74,8 +90,8 @@ class ActFakeQuant(nn.Module):
 # ---------- weight fake-quant wrappers (freeze-from-weights) ----------
 class QuantConv2d(nn.Conv2d):
     """
-    Per-tensor symmetric int quantization for weights with configurable bits.
-    We compute/freeze params once from trained weights (PTQ).
+    Conv2d with per-tensor symmetric int quantization for weights.
+    Quantization parameters are computed and frozen from trained weights.
     """
     def __init__(self, *args, weight_bits=8, **kwargs):
         super().__init__(*args, **kwargs)
@@ -88,6 +104,9 @@ class QuantConv2d(nn.Conv2d):
 
     @torch.no_grad()
     def freeze(self):
+        """
+        Freeze quantization parameters for weights.
+        """
         w = self.weight.detach().cpu()
         w_min, w_max = w.min(), w.max()
         scale, zp, qmin, qmax = qparams_from_minmax(
@@ -99,6 +118,10 @@ class QuantConv2d(nn.Conv2d):
         self.frozen = True
 
     def forward(self, x):
+        """
+        During calibration: use FP32 weights.
+        After freeze: quantize and dequantize weights.
+        """
         if not self.frozen:
             return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
         q = quantize(self.weight, self.w_scale, self.w_zp, self.qmin, self.qmax)
@@ -106,6 +129,10 @@ class QuantConv2d(nn.Conv2d):
         return F.conv2d(x, w_dq, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 class QuantLinear(nn.Linear):
+    """
+    Linear layer with per-tensor symmetric int quantization for weights.
+    Quantization parameters are computed and frozen from trained weights.
+    """
     def __init__(self, *args, weight_bits=8, **kwargs):
         super().__init__(*args, **kwargs)
         self.weight_bits = weight_bits
@@ -117,6 +144,9 @@ class QuantLinear(nn.Linear):
 
     @torch.no_grad()
     def freeze(self):
+        """
+        Freeze quantization parameters for weights.
+        """
         w = self.weight.detach().cpu()
         w_min, w_max = w.min(), w.max()
         scale, zp, qmin, qmax = qparams_from_minmax(
@@ -128,6 +158,10 @@ class QuantLinear(nn.Linear):
         self.frozen = True
 
     def forward(self, x):
+        """
+        During calibration: use FP32 weights.
+        After freeze: quantize and dequantize weights.
+        """
         if not self.frozen:
             return F.linear(x, self.weight, self.bias)
         q = quantize(self.weight, self.w_scale, self.w_zp, self.qmin, self.qmax)
@@ -137,13 +171,15 @@ class QuantLinear(nn.Linear):
 # ---------- model surgery with user-selected bits ----------
 def swap_to_quant_modules(model, weight_bits=8, act_bits=8, activations_unsigned=True):
     """
-    - Replace every Conv2d/Linear with Quant* using weight_bits.
-    - Replace every ReLU with Sequential(ReLU, ActFakeQuant(act_bits)).
+    Recursively replaces:
+    - Conv2d/Linear with QuantConv2d/QuantLinear using weight_bits.
+    - ReLU with Sequential(ReLU, ActFakeQuant(act_bits)).
     """
     for name, m in list(model.named_children()):
         swap_to_quant_modules(m, weight_bits, act_bits, activations_unsigned)
 
         if isinstance(m, nn.Conv2d):
+            # Replace Conv2d with QuantConv2d
             q = QuantConv2d(
                 m.in_channels, m.out_channels, m.kernel_size,
                 stride=m.stride, padding=m.padding, dilation=m.dilation,
@@ -156,6 +192,7 @@ def swap_to_quant_modules(model, weight_bits=8, act_bits=8, activations_unsigned
             setattr(model, name, q)
 
         elif isinstance(m, nn.Linear):
+            # Replace Linear with QuantLinear
             q = QuantLinear(m.in_features, m.out_features, bias=(m.bias is not None), weight_bits=weight_bits)
             q.weight.data.copy_(m.weight.data)
             if m.bias is not None:
@@ -163,6 +200,7 @@ def swap_to_quant_modules(model, weight_bits=8, act_bits=8, activations_unsigned
             setattr(model, name, q)
 
         elif isinstance(m, nn.ReLU):
+            # Replace ReLU with ReLU + ActFakeQuant
             seq = nn.Sequential(OrderedDict([
                 ("relu", nn.ReLU(inplace=getattr(m, "inplace", False))),
                 ("aq", ActFakeQuant(n_bits=act_bits, unsigned=activations_unsigned)),
@@ -171,7 +209,7 @@ def swap_to_quant_modules(model, weight_bits=8, act_bits=8, activations_unsigned
 
 def freeze_all_quant(model):
     """
-    Freeze weights and activations (finalize scales/ZPs) after calibration.
+    Freeze all quantization parameters for weights and activations after calibration.
     """
     for mod in model.modules():
         if isinstance(mod, (QuantConv2d, QuantLinear)):
@@ -182,14 +220,18 @@ def freeze_all_quant(model):
                     sub.freeze()
 
 def model_size_bytes_fp32(model):
-    """Total size of all parameters if stored as FP32 (4 bytes each)."""
+    """
+    Returns total size of all parameters if stored as FP32 (4 bytes each).
+    """
     total = 0
     for p in model.parameters():
         total += p.numel() * 4
     return total
 
 def model_size_bytes_quant(model, weight_bits=8):
-    """Total size if all weights were stored as intN, biases stay FP32."""
+    """
+    Returns total size if all weights were stored as intN, biases stay FP32.
+    """
     total = 0
     for name, p in model.named_parameters():
         if "weight" in name:
