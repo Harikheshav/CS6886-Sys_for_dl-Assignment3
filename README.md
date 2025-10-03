@@ -74,7 +74,7 @@ You can adjust **quantization bits** for both **weights** and **activations**, a
 Install dependencies from `requirements.txt`:
 
     pip install -r requirements.txt
-    
+
 ### 2 Train MobileNetV2 (Task 1)
 
     python train.py
@@ -95,14 +95,7 @@ Install dependencies from `requirements.txt`:
 - Generates a **parallel coordinates plot**: `parallel_coordinates.png`
 - Visualizes the relationship between quantization bits, compression, and accuracy.
 
----
 
-##  Notes
-- Accuracy retention after quantization is critical.
-- Maximum points awarded for **best compression ratio while maintaining accuracy**.
-- Submit **full code + report** on GitHub and share the link on Moodle.
-
----
 
 ##  Evaluation Criteria
 - **Functionality:** Working training + quantization code
