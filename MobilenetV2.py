@@ -78,17 +78,17 @@ class MobileNetV2_woBN(nn.Module):
         super(MobileNetV2, self).__init__()
         self.init_channels = 3
         self.loss = 0
-        self.layer1 = self._make_layers(cfg[0], dropout)
-        self.layer2 = self._make_layers(cfg[1], dropout)
-        self.layer3 = self._make_layers(cfg[2], dropout)
-        self.layer4 = self._make_layers(cfg[3], dropout)
-        self.layer5 = self._make_layers(cfg[4], dropout)
-        self.layer6 = self._make_layers(cfg[5], dropout)
-        self.layer7 = self._make_layers(cfg[6], dropout)
+        self.layer1 = self._make_layers(cfg[0])
+        self.layer2 = self._make_layers(cfg[1])
+        self.layer3 = self._make_layers(cfg[2])
+        self.layer4 = self._make_layers(cfg[3])
+        self.layer5 = self._make_layers(cfg[4])
+        self.layer6 = self._make_layers(cfg[5])
+        self.layer7 = self._make_layers(cfg[6])
         self.final_conv = ConvReLU(self.init_channels, 1280, kernel_size=1)
         # Classifier
         self.classifier = nn.Sequential(
-            nn.Dropout(0.2),
+            nn.Dropout(dropout),
             nn.Linear(1280, num_classes)
         )
         
@@ -118,6 +118,9 @@ class MobileNetV2_woBN(nn.Module):
         out = self.layer5(out)
         out = self.layer6(out)
         out = self.layer7(out)
+        out = self.final_conv(out)                    # last 1x1 conv
+        out = nn.functional.adaptive_avg_pool2d(out, 1)  # global avg pool → [B, 1280, 1, 1]
+        out = out.view(out.size(0), -1)               # flatten → [B, 1280]
         out = self.classifier(out)
         return out
 
@@ -126,17 +129,17 @@ class MobileNetV2(nn.Module):
         super(MobileNetV2, self).__init__()
         self.init_channels = 3
         self.loss = 0
-        self.layer1 = self._make_layers(cfg[0], dropout)
-        self.layer2 = self._make_layers(cfg[1], dropout)
-        self.layer3 = self._make_layers(cfg[2], dropout)
-        self.layer4 = self._make_layers(cfg[3], dropout)
-        self.layer5 = self._make_layers(cfg[4], dropout)
-        self.layer6 = self._make_layers(cfg[5], dropout)
-        self.layer7 = self._make_layers(cfg[6], dropout)
+        self.layer1 = self._make_layers(cfg[0])
+        self.layer2 = self._make_layers(cfg[1])
+        self.layer3 = self._make_layers(cfg[2])
+        self.layer4 = self._make_layers(cfg[3])
+        self.layer5 = self._make_layers(cfg[4])
+        self.layer6 = self._make_layers(cfg[5])
+        self.layer7 = self._make_layers(cfg[6])
         self.final_conv = ConvBNReLU(self.init_channels, 1280, kernel_size=1)
         # Classifier
         self.classifier = nn.Sequential(
-            nn.Dropout(0.2),
+            nn.Dropout(dropout),
             nn.Linear(1280, num_classes)
         )
         
@@ -166,6 +169,9 @@ class MobileNetV2(nn.Module):
         out = self.layer5(out)
         out = self.layer6(out)
         out = self.layer7(out)
+        out = self.final_conv(out)                    # last 1x1 conv
+        out = nn.functional.adaptive_avg_pool2d(out, 1)  # global avg pool → [B, 1280, 1, 1]
+        out = out.view(out.size(0), -1)               # flatten → [B, 1280]
         out = self.classifier(out)
         return out
 
