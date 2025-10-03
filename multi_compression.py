@@ -144,5 +144,6 @@ ax.set_ylabel("Normalized Scale [0-1]")
 plt.tight_layout()
 
 pc_plot_path = "parallel_coordinates.png"
+plt.show()
 plt.savefig(pc_plot_path, dpi=300)
 print(f"Saved Parallel Coordinates plot: {pc_plot_path}")

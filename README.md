@@ -82,9 +82,12 @@ Install dependencies from `requirements.txt`:
 - Logs: `training_log.txt`
 - Checkpoint: `./checkpoints/test2_mobilenetv2_cifar10.pth`
 
+  python test.py --weight_quant_bits 8 --activation_quant_bits 8
+-  
+
 ### 3 Quantize Model (Task 2)
 
-    python test.py --weight_bits 8,6,4 --act_bits 8,6,4 --calib_batches 5
+    python multi_compression.py --weight_bits 8,6,4 --act_bits 8,6,4 --calib_batches 5
 
 - Sweep through all combinations of weight/activation bits.
 - Calibrates activations using a few training batches.

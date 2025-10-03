@@ -56,7 +56,6 @@ if __name__ == '__main__':
 
     plt.tight_layout()
     plt.show()
-
     # Quantization: swap modules to quantized versions
     weight_quantize_bits = args.weight_quant_bits
     act_quantize_bits = args.activation_quant_bits
