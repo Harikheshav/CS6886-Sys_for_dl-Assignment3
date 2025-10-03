@@ -66,4 +66,7 @@ if __name__ == '__main__':
     freeze_all_quant(model)
     quantize_test_acc = evaluate(model, test_loader, device)
     print(f"Quantized Test Acc={quantize_test_acc:.2f}%")
-    print_compression(model,weight_bits=weight_quantize_bits)
+    print_compression(model,
+                  weight_bits=weight_quantize_bits,
+                  act_bits=act_quantize_bits,
+                  device=device)

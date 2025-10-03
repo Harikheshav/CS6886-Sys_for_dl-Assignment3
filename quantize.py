@@ -198,12 +198,62 @@ def model_size_bytes_quant(model, weight_bits=8):
             total += p.numel() * 4                 # keep biases FP32
     return total
 
-def print_compression(model, weight_bits=8):
-    fp32_size = model_size_bytes_fp32(model)
-    quant_size = model_size_bytes_quant(model, weight_bits)
-    ratio = fp32_size / max(quant_size, 1)
+def print_compression(model, weight_bits=8, act_bits=8, device="cpu"):
+    """
+    Prints full compression summary:
+    (a) Model compression ratio (weights + biases)
+    (b) Weight-only compression ratio
+    (c) Activation compression ratio (measured via dummy forward pass)
+    (d) Final quantized model size (MB)
+    """
+    # --- sizes in bytes ---
+    fp32_size = model_size_bytes_fp32(model)           # all params as FP32
+    quant_size = model_size_bytes_quant(model, weight_bits)  # weights intN, biases FP32
+
+    # (a) Model compression ratio
+    model_ratio = fp32_size / max(quant_size, 1)
+
+    # (b) Weight-only compression ratio
+    total_weights = sum(p.numel() for n, p in model.named_parameters() if "weight" in n)
+    fp32_weight_bits = total_weights * 32
+    quant_weight_bits = total_weights * weight_bits
+    weight_ratio = fp32_weight_bits / quant_weight_bits
+
+    # (c) Activation compression ratio
+    activations = []
+
+    def hook_fn(module, inp, out):
+        if isinstance(out, torch.Tensor):
+            activations.append(out.numel())
+
+    handles = []
+    for m in model.modules():
+        if isinstance(m, (nn.ReLU, nn.ReLU6, ActFakeQuant)):
+            handles.append(m.register_forward_hook(hook_fn))
+
+    dummy = torch.randn(1, 3, 32, 32).to(device)
+    model.eval()
+    with torch.no_grad():
+        model(dummy)
+
+    for h in handles:
+        h.remove()
+
+    total_acts = sum(activations)
+    fp32_act_bits = total_acts * 32
+    quant_act_bits = total_acts * act_bits
+    act_ratio = fp32_act_bits / quant_act_bits
+
+    # (d) Final quantized model size in MB
+    final_size_mb = quant_size / (1024 * 1024)
+
+    # --- print summary ---
     print("=== Compression Summary ===")
     print(f"FP32 model size:   {fp32_size/1024/1024:.2f} MB")
-    print(f"Quantized size:    {quant_size/1024/1024:.2f} MB (weights={weight_bits}-bit)")
-    print(f"Compression ratio: {ratio:.2f}x")
+    print(f"Quantized size:    {final_size_mb:.2f} MB (weights={weight_bits}-bit, activations={act_bits}-bit)")
+    print(f"(a) Model compression ratio (weights+biases): {model_ratio:.2f}x")
+    print(f"(b) Weight-only compression ratio: {weight_ratio:.2f}x")
+    print(f"(c) Activation compression ratio: {act_ratio:.2f}x "
+          f"(measured with CIFAR-10 dummy input)")
+    print(f"(d) Final quantized model size (MB): {final_size_mb:.2f}x ")
     print("===========================")
